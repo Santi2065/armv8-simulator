@@ -30,7 +30,7 @@ int32_t extract_imm9(uint32_t instruction) {
     return imm9;
 }
 
-// Extrae y extiende el signo del 19-bit immediate for branches
+// Extrae y extiende el signo del 19-bit immediate para ramas
 int32_t extract_imm19(uint32_t instruction) {
     int32_t imm19 = (instruction >> 5) & 0x7FFFF;
     if (imm19 & (1 << 18)) {
