@@ -279,37 +279,146 @@ void process_instruction()
                 break;
             case 0x7c2: // LDUR 
                 {
-                    int32_t imm9 = (instruction >> 12) & 0x1FF;
-                    if (imm9 & 0x100) { 
-                        imm9 |= 0xFFFFFE00; 
+                    int64_t reg_Xn = CURRENT_STATE.REGS[Rn];
+                    int32_t offset = ((instruction >> 12) & 0x1FF);
+                    
+                    // Extensión de signo para el offset de 9 bits
+                    if (offset & 0x100) {
+                        offset |= 0xFFFFFE00;
                     }
-
-                    uint32_t address = CURRENT_STATE.REGS[Rn] + imm9;
-                    uint32_t half_value_1 = mem_read_32(address);
-                    uint32_t half_value_2 = mem_read_32(address + 4); 
-                    uint64_t value = ((uint64_t)half_value_2 << 32) | half_value_1;
-                    if (Rd != 31) NEXT_STATE.REGS[Rd] = value;
+                    
+                    uint64_t address = reg_Xn + offset;
+                    
+                    // Leer dos palabras de 32 bits y combinarlas para formar 64 bits
+                    uint32_t low_word = mem_read_32(address);
+                    uint32_t high_word = mem_read_32(address + 4);
+                    
+                    // Combinar en un valor de 64 bits (little-endian)
+                    uint64_t value = ((uint64_t)high_word << 32) | low_word;
+                    
+                    NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : value;
+                    break;
                 }
-                break;
             case 0x1c2: // LDURB 
                 {
-                    int32_t imm9 = (instruction >> 12) & 0x1FF;
-                    uint64_t address = CURRENT_STATE.REGS[Rn] + imm9;
-                    uint32_t byte_value = mem_read_32(address);
-                    uint64_t value = (uint64_t)byte_value; 
-                    if (Rd != 31) NEXT_STATE.REGS[Rd] = value;
+                    int64_t reg_Xn = CURRENT_STATE.REGS[Rn];
+                    int32_t offset = ((instruction >> 12) & 0x1FF);
+                    
+                    // Extensión de signo para el offset
+                    if (offset & 0x100) {
+                        offset |= 0xFFFFFE00;
+                    }
+                    
+                    uint64_t address = reg_Xn + offset;
+                    
+                    // Leer 32 bits y extraer solo el primer byte
+                    uint32_t word = mem_read_32(address);
+                    uint8_t byte = word & 0xFF;
+                    
+                    // Extender con ceros (56 bits de ceros + 8 bits de datos)
+                    uint64_t value = (uint64_t)byte;
+                    
+                    NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : value;
+                    break;
                 }
-                break;
             case 0x3c2: // LDURH 
                 {
-                    int32_t imm9 = (instruction >> 12) & 0x1FF;
-                    uint64_t address = CURRENT_STATE.REGS[Rn] + imm9;
-                    uint32_t half_value = mem_read_32(address);
-                    uint64_t value = (uint64_t)half_value;
-                    if (Rd != 31) NEXT_STATE.REGS[Rd] = half_value;
+                    int64_t reg_Xn = CURRENT_STATE.REGS[Rn];
+                    int32_t offset = ((instruction >> 12) & 0x1FF);
+                    
+                    // Extensión de signo para el offset
+                    if (offset & 0x100) {
+                        offset |= 0xFFFFFE00;
+                    }
+                    
+                    uint64_t address = reg_Xn + offset;
+                    
+                    // Leer 32 bits y extraer solo los primeros 16 bits
+                    uint32_t word = mem_read_32(address);
+                    uint16_t halfword = word & 0xFFFF;
+                    
+                    // Extender con ceros (48 bits de ceros + 16 bits de datos)
+                    uint64_t value = (uint64_t)halfword;
+                    
+                    NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : value;
+                    break;
                 }
-                break;
 
+            // ADD (Extended Register) - Similar a ADDS pero sin actualizar flags
+            case 0x458: {  // ADD Register
+                int64_t reg_Xn = (Rn == 31) ? 0 : CURRENT_STATE.REGS[Rn];
+                int64_t reg_Xm = (Rm == 31) ? 0 : CURRENT_STATE.REGS[Rm];
+
+                int64_t result = reg_Xn + reg_Xm;
+                NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : result;
+                break;
+            }
+
+            // ADD (Immediate) - Similar a ADDS pero sin actualizar flags
+            case 0x488: {  // ADD Immediate
+                uint32_t imm12 = (instruction >> 10) & 0xFFF;
+                uint32_t shift = (instruction >> 22) & 0x3;
+                
+                int64_t reg_Xn = (Rn == 31) ? 0 : CURRENT_STATE.REGS[Rn];
+                int64_t imm = imm12;
+                
+                // Aplicar shift si es necesario (01 = LSL #12)
+                if (shift == 1) {
+                    imm = imm12 << 12;
+                }
+                
+                int64_t result = reg_Xn + imm;
+                NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : result;
+                break;
+            }
+
+            // MUL - Multiplicación básica
+            case 0x4D8: {  // MUL
+                int64_t reg_Xn = (Rn == 31) ? 0 : CURRENT_STATE.REGS[Rn];
+                int64_t reg_Xm = (Rm == 31) ? 0 : CURRENT_STATE.REGS[Rm];
+
+                int64_t result = reg_Xn * reg_Xm;
+                NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : result;
+                break;
+            }
+
+            // CBZ - Compare and Branch if Zero
+            case 0xB4: {  // CBZ
+                uint64_t reg_value = CURRENT_STATE.REGS[Rd];
+                int32_t imm19 = (instruction >> 5) & 0x7FFFF;
+                
+                // Extensión de signo del inmediato
+                if (imm19 & (1 << 18)) {
+                    imm19 |= ~((1 << 19) - 1);
+                }
+                imm19 <<= 2;  // Multiplicar por 4 para alineación
+                
+                if (reg_value == 0) {
+                    NEXT_STATE.PC = CURRENT_STATE.PC + imm19;
+                } else {
+                    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+                }
+                return;
+            }
+
+            // CBNZ - Compare and Branch if Not Zero
+            case 0xB5: {  // CBNZ
+                uint64_t reg_value = CURRENT_STATE.REGS[Rd];
+                int32_t imm19 = (instruction >> 5) & 0x7FFFF;
+                
+                // Extensión de signo del inmediato
+                if (imm19 & (1 << 18)) {
+                    imm19 |= ~((1 << 19) - 1);
+                }
+                imm19 <<= 2;  // Multiplicar por 4 para alineación
+                
+                if (reg_value != 0) {
+                    NEXT_STATE.PC = CURRENT_STATE.PC + imm19;
+                } else {
+                    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+                }
+                return;
+            }
 
             default:
                 printf("Instrucción desconocida: %x\n", opcode);
