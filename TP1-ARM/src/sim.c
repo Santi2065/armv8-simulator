@@ -383,7 +383,7 @@ void process_instruction()
             }
 
             // CBZ - Compare and Branch if Zero
-            case 0xB4: {  // CBZ
+            case 0x5A0: {  // CBZ
                 uint64_t reg_value = CURRENT_STATE.REGS[Rd];
                 int32_t imm19 = (instruction >> 5) & 0x7FFFF;
                 
@@ -402,7 +402,7 @@ void process_instruction()
             }
 
             // CBNZ - Compare and Branch if Not Zero
-            case 0xB5: {  // CBNZ
+            case 0x5A8: {  // CBNZ
                 uint64_t reg_value = CURRENT_STATE.REGS[Rd];
                 int32_t imm19 = (instruction >> 5) & 0x7FFFF;
                 

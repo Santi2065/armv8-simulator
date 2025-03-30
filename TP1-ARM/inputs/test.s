@@ -21,4 +21,5 @@ salto2:
 movz x8, 99
 
 fin:
-hlt 0
+HLT 0
+
