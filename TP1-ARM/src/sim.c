@@ -12,11 +12,6 @@ void process_instruction()
     uint32_t Rd = instruction & 0x1F;
     uint32_t Rn = (instruction >> 5) & 0x1F; 
     uint32_t Rm = (instruction >> 16) & 0x1F; 
-    
-    printf("PC: 0x%016lX | Instruction: 0x%08X | Opcode: 0x%X\n", 
-       (unsigned long) CURRENT_STATE.PC, instruction, opcode);
-    printf("Instrucción: 0x%08X, opcode_high: 0x%X, primeros 8 bits: 0x%X\n", 
-       instruction, opcode_high, instruction >> 24);
 
     // Caso especial para instrucciones B.Cond (comienzan con 0x54)
     if (opcode_high == 0x54) {
@@ -32,9 +27,6 @@ void process_instruction()
         imm19 <<= 2;
     
         uint64_t new_address = CURRENT_STATE.PC + imm19;
-    
-        printf("B.Cond | cond: 0x%X | flag_n: %d | flag_z: %d | imm19: 0x%X | new_address: 0x%016lX\n", 
-               cond, flag_n, flag_z, imm19, new_address);
     
         int should_branch = 0;
         switch (cond) {
@@ -211,7 +203,6 @@ void process_instruction()
                     uint64_t src = CURRENT_STATE.REGS[Rn];
                     uint64_t result = src << shift;
                     if (Rd != 31) NEXT_STATE.REGS[Rd] = result;
-                    printf("LSL: X%u = 0x%" PRIX64 " << %" PRIu64 " -> X%u = 0x%" PRIX64 "\n", Rn, src, shift, Rd, result);
 
                     NEXT_STATE.FLAG_Z = (NEXT_STATE.REGS[Rd] == 0) ? 1 : 0;
                     NEXT_STATE.FLAG_N = (NEXT_STATE.REGS[Rd] < 0) ? 1 : 0;
@@ -229,8 +220,6 @@ void process_instruction()
                         uint64_t src = CURRENT_STATE.REGS[Rn];
                         uint64_t result = src >> shift;
                         if (Rd != 31) NEXT_STATE.REGS[Rd] = result;
-                        printf("LSR: X%u = 0x%" PRIX64 " >> %" PRIu64 " -> X%u = 0x%" PRIX64 "\n", Rn, src, shift, Rd, result);
-
                         NEXT_STATE.FLAG_Z = (NEXT_STATE.REGS[Rd] == 0) ? 1 : 0;
                         NEXT_STATE.FLAG_N = (NEXT_STATE.REGS[Rd] < 0) ? 1 : 0;
 
