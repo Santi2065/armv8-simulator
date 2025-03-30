@@ -3,11 +3,47 @@
 #include <string.h>
 #include "shell.h"
 
+// Obtiene el valor del registro considerando XZR (x31)
+int64_t get_reg_value(int reg_num) {
+    return (reg_num == 31) ? 0 : CURRENT_STATE.REGS[reg_num];
+}
+
+// Establece el valor del registro considerando XZR (x31)
+void set_reg_value(int reg_num, int64_t value) {
+    if (reg_num != 31) {
+        NEXT_STATE.REGS[reg_num] = value;
+    }
+}
+
+// Actualiza flags según el resultado
+void update_flags(int64_t result) {
+    NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
+    NEXT_STATE.FLAG_N = (result < 0) ? 1 : 0;
+}
+
+// Extrae y extiende el signo del 9-bit immediate
+int32_t extract_imm9(uint32_t instruction) {
+    int32_t imm9 = (instruction >> 12) & 0x1FF;
+    if (imm9 & 0x100) {
+        imm9 |= 0xFFFFFE00;
+    }
+    return imm9;
+}
+
+// Extrae y extiende el signo del 19-bit immediate for branches
+int32_t extract_imm19(uint32_t instruction) {
+    int32_t imm19 = (instruction >> 5) & 0x7FFFF;
+    if (imm19 & (1 << 18)) {
+        imm19 |= ~((1 << 19) - 1);
+    }
+    return imm19 << 2; // Multiplica por 4 para alineación
+}
+
 void process_instruction()
 {
     uint32_t instruction = mem_read_32(CURRENT_STATE.PC);
     uint32_t opcode = (instruction >> 21) & 0x7FF;
-    uint32_t opcode_high = (instruction >> 24) & 0xFF;  // Los 8 bits más altos
+    uint32_t opcode_high = (instruction >> 24) & 0xFF;
 
     uint32_t Rd = instruction & 0x1F;
     uint32_t Rn = (instruction >> 5) & 0x1F; 
@@ -18,13 +54,7 @@ void process_instruction()
         int flag_n = CURRENT_STATE.FLAG_N;
         int flag_z = CURRENT_STATE.FLAG_Z;
         uint8_t cond = instruction & 0xF;
-        int32_t imm19 = (instruction >> 5) & 0x7FFFF;  // Inmediato de 19 bits
-    
-        // Extensión de signo del inmediato
-        if (imm19 & (1 << 18)) {
-            imm19 |= ~((1 << 19) - 1);
-        }
-        imm19 <<= 2;
+        int32_t imm19 = extract_imm19(instruction);
     
         uint64_t new_address = CURRENT_STATE.PC + imm19;
     
@@ -64,7 +94,6 @@ void process_instruction()
         
         return;
     } else {
-
         // Switch regular para el resto de instrucciones
         switch (opcode) {
             case 0x6A2:  // HLT
@@ -73,28 +102,26 @@ void process_instruction()
 
             case 0x558: {  // ADDS Register
 
-                int64_t reg_Xn = (Rn == 31) ? 0 : CURRENT_STATE.REGS[Rn];  // Manejo de XZR
-                int64_t reg_Xm = (Rm == 31) ? 0 : CURRENT_STATE.REGS[Rm];
+                int64_t reg_Xn = get_reg_value(Rn);  // Manejo de XZR
+                int64_t reg_Xm = get_reg_value(Rm);
 
                 int64_t result = reg_Xn + reg_Xm;
-                NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : result;  // XZR permanece en 0
+                set_reg_value(Rd, result);  // XZR permanece en 0
 
-                NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
-                NEXT_STATE.FLAG_N = (result < 0) ? 1 : 0;
+                update_flags(result);
                 break;
             }
 
             case 0x758: {  // SUBS Register (también implementa CMP Register cuando Rd=31/XZR)
        
-                int64_t reg_Xn = (Rn == 31) ? 0 : CURRENT_STATE.REGS[Rn];
-                int64_t reg_Xm = (Rm == 31) ? 0 : CURRENT_STATE.REGS[Rm];
+                int64_t reg_Xn = get_reg_value(Rn);
+                int64_t reg_Xm = get_reg_value(Rm);
                 int64_t result = reg_Xn - reg_Xm;
                 
-                NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : result;
+                set_reg_value(Rd, result);
                 
                 // Actualizar FLAGS
-                NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
-                NEXT_STATE.FLAG_N = (result < 0) ? 1 : 0;
+                update_flags(result);
                 break;
             }
             
@@ -102,14 +129,13 @@ void process_instruction()
 
                 uint32_t imm12 = (instruction >> 10) & 0xFFF;
 
-                int64_t reg_Xn = (Rn == 31) ? 0 : CURRENT_STATE.REGS[Rn];
+                int64_t reg_Xn = get_reg_value(Rn);
                 int64_t imm = imm12;
                 int64_t result = reg_Xn + imm;
 
-                NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : result;
+                set_reg_value(Rd, result);
 
-                NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
-                NEXT_STATE.FLAG_N = (result < 0) ? 1 : 0;
+                update_flags(result);
                 break;
             }
 
@@ -123,45 +149,43 @@ void process_instruction()
                     imm12 <<= 12;
                 }
                 
-                int64_t reg_Xn = (Rn == 31) ? 0 : CURRENT_STATE.REGS[Rn];
+                int64_t reg_Xn = get_reg_value(Rn);
                 int64_t result = reg_Xn - imm12;
                 
-                NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : result;
+                set_reg_value(Rd, result);
                 
                 // Actualizar FLAGS
-                NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
-                NEXT_STATE.FLAG_N = (result < 0) ? 1 : 0;
+                update_flags(result);
                 break;
             }
             case 0x750: {  // ANDS (Shifted Register)
 
-                int64_t reg_Xn = (Rn == 31) ? 0 : CURRENT_STATE.REGS[Rn];
-                int64_t reg_Xm = (Rm == 31) ? 0 : CURRENT_STATE.REGS[Rm];
+                int64_t reg_Xn = get_reg_value(Rn);
+                int64_t reg_Xm = get_reg_value(Rm);
                 int64_t result = reg_Xn & reg_Xm;
 
-                NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : result;
+                set_reg_value(Rd, result);
 
                 // Actualizar FLAGS
-                NEXT_STATE.FLAG_Z = (result == 0) ? 1 : 0;
-                NEXT_STATE.FLAG_N = (result < 0) ? 1 : 0;
+                update_flags(result);
                 break;
             }
             case 0x650: {  // EOR (Shifted Register)
 
-                int64_t reg_Xn = (Rn == 31) ? 0 : CURRENT_STATE.REGS[Rn];
-                int64_t reg_Xm = (Rm == 31) ? 0 : CURRENT_STATE.REGS[Rm];
+                int64_t reg_Xn = get_reg_value(Rn);
+                int64_t reg_Xm = get_reg_value(Rm);
                 int64_t result = reg_Xn ^ reg_Xm;
 
-                NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : result;
+                set_reg_value(Rd, result);
                 break;
             }
             case 0x550: {  // ORR (Shifted Register)
 
-                int64_t reg_Xn = (Rn == 31) ? 0 : CURRENT_STATE.REGS[Rn];
-                int64_t reg_Xm = (Rm == 31) ? 0 : CURRENT_STATE.REGS[Rm];
+                int64_t reg_Xn = get_reg_value(Rn);
+                int64_t reg_Xm = get_reg_value(Rm);
                 int64_t result = reg_Xn | reg_Xm;
 
-                NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : result;
+                set_reg_value(Rd, result);
                 break;
             }
             case 0x0A0: {  // B (Branch)
@@ -191,7 +215,7 @@ void process_instruction()
                     printf("MOVZ: Advertencia - hw != 0 no implementado, usando hw = 0\n");
                 }
                 
-                NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : result;
+                set_reg_value(Rd, result);
                 break;
             }
 
@@ -202,10 +226,9 @@ void process_instruction()
                     uint64_t shift = 63 - immr; 
                     uint64_t src = CURRENT_STATE.REGS[Rn];
                     uint64_t result = src << shift;
-                    if (Rd != 31) NEXT_STATE.REGS[Rd] = result;
+                    set_reg_value(Rd, result);
 
-                    NEXT_STATE.FLAG_Z = (NEXT_STATE.REGS[Rd] == 0) ? 1 : 0;
-                    NEXT_STATE.FLAG_N = (NEXT_STATE.REGS[Rd] < 0) ? 1 : 0;
+                    update_flags(result);
 
 
                     break;
@@ -219,21 +242,16 @@ void process_instruction()
                         uint64_t shift = imms; 
                         uint64_t src = CURRENT_STATE.REGS[Rn];
                         uint64_t result = src >> shift;
-                        if (Rd != 31) NEXT_STATE.REGS[Rd] = result;
-                        NEXT_STATE.FLAG_Z = (NEXT_STATE.REGS[Rd] == 0) ? 1 : 0;
-                        NEXT_STATE.FLAG_N = (NEXT_STATE.REGS[Rd] < 0) ? 1 : 0;
+                        set_reg_value(Rd, result);
+                        update_flags(result);
 
 
                         break;
                 }
             case 0x7c0: // STUR 
             {
-                int32_t imm9 = (instruction >> 12) & 0x1FF;     
+                int32_t imm9 = extract_imm9(instruction);     
 
-                if (imm9 & 0x100) { 
-                    imm9 |= 0xFFFFFE00; 
-                } 
-               
                 uint32_t address = CURRENT_STATE.REGS[Rn] + imm9;     
                 mem_write_32(address, CURRENT_STATE.REGS[Rd]); 
             }
@@ -241,10 +259,7 @@ void process_instruction()
             case 0x1c0: // STURB 
                 {
 
-                    int32_t imm9 = (instruction >> 12) & 0x1FF;
-                    if (imm9 & 0x100){ 
-                        imm9 |= 0xFFFFFE00; 
-                    }
+                    int32_t imm9 = extract_imm9(instruction);
 
                 uint32_t address = CURRENT_STATE.REGS[Rn] + imm9;
                 uint32_t value = mem_read_32(address);
@@ -255,10 +270,7 @@ void process_instruction()
             case 0x3E1: // STURH 
                 {
 
-                    int32_t imm9 = (instruction >> 12) & 0x1FF;
-                    if (imm9 & 0x100) { 
-                        imm9 |= 0xFFFFFE00; 
-                    }
+                    int32_t imm9 = extract_imm9(instruction);
 
                     uint32_t address = CURRENT_STATE.REGS[Rn] + imm9;
                     uint32_t value = mem_read_32(address);
@@ -269,12 +281,7 @@ void process_instruction()
             case 0x7c2: // LDUR 
                 {
                     int64_t reg_Xn = CURRENT_STATE.REGS[Rn];
-                    int32_t offset = ((instruction >> 12) & 0x1FF);
-                    
-                    // Extensión de signo para el offset de 9 bits
-                    if (offset & 0x100) {
-                        offset |= 0xFFFFFE00;
-                    }
+                    int32_t offset = extract_imm9(instruction);
                     
                     uint64_t address = reg_Xn + offset;
                     
@@ -285,18 +292,13 @@ void process_instruction()
                     // Combinar en un valor de 64 bits (little-endian)
                     uint64_t value = ((uint64_t)high_word << 32) | low_word;
                     
-                    NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : value;
+                    set_reg_value(Rd, value);
                     break;
                 }
             case 0x1c2: // LDURB 
                 {
                     int64_t reg_Xn = CURRENT_STATE.REGS[Rn];
-                    int32_t offset = ((instruction >> 12) & 0x1FF);
-                    
-                    // Extensión de signo para el offset
-                    if (offset & 0x100) {
-                        offset |= 0xFFFFFE00;
-                    }
+                    int32_t offset = extract_imm9(instruction);
                     
                     uint64_t address = reg_Xn + offset;
                     
@@ -307,18 +309,13 @@ void process_instruction()
                     // Extender con ceros (56 bits de ceros + 8 bits de datos)
                     uint64_t value = (uint64_t)byte;
                     
-                    NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : value;
+                    set_reg_value(Rd, value);
                     break;
                 }
             case 0x3c2: // LDURH 
                 {
                     int64_t reg_Xn = CURRENT_STATE.REGS[Rn];
-                    int32_t offset = ((instruction >> 12) & 0x1FF);
-                    
-                    // Extensión de signo para el offset
-                    if (offset & 0x100) {
-                        offset |= 0xFFFFFE00;
-                    }
+                    int32_t offset = extract_imm9(instruction);
                     
                     uint64_t address = reg_Xn + offset;
                     
@@ -329,17 +326,17 @@ void process_instruction()
                     // Extender con ceros (48 bits de ceros + 16 bits de datos)
                     uint64_t value = (uint64_t)halfword;
                     
-                    NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : value;
+                    set_reg_value(Rd, value);
                     break;
                 }
 
             // ADD (Extended Register) - Similar a ADDS pero sin actualizar flags
             case 0x458: {  // ADD Register
-                int64_t reg_Xn = (Rn == 31) ? 0 : CURRENT_STATE.REGS[Rn];
-                int64_t reg_Xm = (Rm == 31) ? 0 : CURRENT_STATE.REGS[Rm];
+                int64_t reg_Xn = get_reg_value(Rn);
+                int64_t reg_Xm = get_reg_value(Rm);
 
                 int64_t result = reg_Xn + reg_Xm;
-                NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : result;
+                set_reg_value(Rd, result);
                 break;
             }
 
@@ -348,7 +345,7 @@ void process_instruction()
                 uint32_t imm12 = (instruction >> 10) & 0xFFF;
                 uint32_t shift = (instruction >> 22) & 0x3;
                 
-                int64_t reg_Xn = (Rn == 31) ? 0 : CURRENT_STATE.REGS[Rn];
+                int64_t reg_Xn = get_reg_value(Rn);
                 int64_t imm = imm12;
                 
                 // Aplicar shift si es necesario (01 = LSL #12)
@@ -357,30 +354,24 @@ void process_instruction()
                 }
                 
                 int64_t result = reg_Xn + imm;
-                NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : result;
+                set_reg_value(Rd, result);
                 break;
             }
 
             // MUL - Multiplicación básica
             case 0x4D8: {  // MUL
-                int64_t reg_Xn = (Rn == 31) ? 0 : CURRENT_STATE.REGS[Rn];
-                int64_t reg_Xm = (Rm == 31) ? 0 : CURRENT_STATE.REGS[Rm];
+                int64_t reg_Xn = get_reg_value(Rn);
+                int64_t reg_Xm = get_reg_value(Rm);
 
                 int64_t result = reg_Xn * reg_Xm;
-                NEXT_STATE.REGS[Rd] = (Rd == 31) ? 0 : result;
+                set_reg_value(Rd, result);
                 break;
             }
 
             // CBZ - Compare and Branch if Zero
             case 0x5A0: {  // CBZ
                 uint64_t reg_value = CURRENT_STATE.REGS[Rd];
-                int32_t imm19 = (instruction >> 5) & 0x7FFFF;
-                
-                // Extensión de signo del inmediato
-                if (imm19 & (1 << 18)) {
-                    imm19 |= ~((1 << 19) - 1);
-                }
-                imm19 <<= 2;  // Multiplicar por 4 para alineación
+                int32_t imm19 = extract_imm19(instruction);
                 
                 if (reg_value == 0) {
                     NEXT_STATE.PC = CURRENT_STATE.PC + imm19;
@@ -393,13 +384,7 @@ void process_instruction()
             // CBNZ - Compare and Branch if Not Zero
             case 0x5A8: {  // CBNZ
                 uint64_t reg_value = CURRENT_STATE.REGS[Rd];
-                int32_t imm19 = (instruction >> 5) & 0x7FFFF;
-                
-                // Extensión de signo del inmediato
-                if (imm19 & (1 << 18)) {
-                    imm19 |= ~((1 << 19) - 1);
-                }
-                imm19 <<= 2;  // Multiplicar por 4 para alineación
+                int32_t imm19 = extract_imm19(instruction);
                 
                 if (reg_value != 0) {
                     NEXT_STATE.PC = CURRENT_STATE.PC + imm19;
