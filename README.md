@@ -138,6 +138,6 @@ Assignment, shell and reference simulator by the I304 teaching staff at UdeSA (P
   title        = {A Functional {ARMv8} ({A64}) Instruction-Set Simulator in {C}},
   year         = {2025},
   howpublished = {Universidad de San Andr{\'e}s, I304 Computer Architecture and Operating Systems},
-  url          = {https://github.com/Santi2065/TP_ACSO}
+  url          = {https://github.com/Santi2065/armv8-simulator}
 }
 ```
